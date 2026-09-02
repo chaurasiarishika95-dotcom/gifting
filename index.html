@@ -107,7 +107,7 @@ async function ask(prompt, max=1200){
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { maxOutputTokens: max, temperature: 0.7 }
+            generationConfig: { maxOutputTokens: max }
           })
         }
       );
@@ -124,8 +124,18 @@ async function ask(prompt, max=1200){
   }
 }
 function pj(t){
-  try{return JSON.parse(t.replace(/```json|```/g,"").trim());}
-  catch{const m=t.match(/[\[{][\s\S]*[\]}]/);if(m){try{return JSON.parse(m[0]);}catch{}}return null;}
+  if(!t) return null;
+  // Strip markdown fences (```json ... ``` or ``` ... ```)
+  let clean = t.replace(/```json\s*/gi,"").replace(/```\s*/g,"").trim();
+  // Try direct parse first
+  try{ return JSON.parse(clean); } catch{}
+  // Find the outermost JSON object or array
+  const obj = clean.match(/\{[\s\S]*\}/);
+  const arr = clean.match(/\[[\s\S]*\]/);
+  // Prefer object (our prompt returns {recommendations:[...]})
+  if(obj){ try{ return JSON.parse(obj[0]); } catch{} }
+  if(arr){ try{ return JSON.parse(arr[0]); } catch{} }
+  return null;
 }
 
 /* ── STYLE TOKENS ── */
@@ -592,11 +602,15 @@ Return ONLY valid JSON in this exact shape, with no markdown or extra text:
     try{
       const t=await ask(prompt);
       const d=pj(t);
-      const recs=Array.isArray(d) ? d : d?.recommendations;
+      // Handle all shapes Gemini might return:
+      // {recommendations:[...]}, [...], {gifts:[...]}, {suggestions:[...]}
+      const recs=Array.isArray(d) ? d
+        : d?.recommendations || d?.gifts || d?.suggestions || d?.items || [];
       if(Array.isArray(recs) && recs.length){
         setSugs(recs.slice(0,4));
       }else{
-        throw new Error("Gemini returned an unexpected recommendation format");
+        console.error("Raw Gemini response:", t);
+        throw new Error("Could not parse recommendations — check console for raw response");
       }
     }catch(e){
       console.error("Gift recommendations failed:",e);
