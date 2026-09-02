@@ -95,13 +95,13 @@ async function ask(prompt, max=1200){
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt, max_tokens: max })
       });
-      if(!r.ok) throw new Error(`Error ${r.status}`);
-      const d = await r.json();
+      const d = await r.json().catch(()=>({}));
+      if(!r.ok) throw new Error(d?.error || `Error ${r.status}`);
       return d.text || "";
     } else {
       // In Claude preview — call Gemini directly
       const r = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${GEMINI_KEY}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -569,22 +569,39 @@ function Sugg({person,occ,setPage,setMF}){
   const fetch_=useCallback(async(extra="")=>{
     if(!person)return;
     setLoading(true);setSugs([]);
-    const prompt=`You are Echo, an Indian gift AI. Generate 4 personalized gift suggestions.
+    const prompt=`You are Echo, an Indian gift recommendation assistant.
+Generate exactly 4 thoughtful gift recommendations for this recipient.
 Recipient: ${person.name} (${person.rel})
-Interests: ${person.int}
+Interests: ${person.int||"not provided"}
 Anti-wishlist: ${person.anti||"none"}
 Recent events: ${person.ev||"none"}
 Occasion: ${curOcc.type}
 Budget: ${curOcc.budget} (Indian Rupees ₹)
-${extra?"Extra: "+extra:""}
-Use Indian brands (Vahdam, Forest Essentials, Blue Tokai, Fabindia, Thrillophilia etc). All prices in ₹.
-Return ONLY JSON array of 4: [{title,description,reasoning,priceRange,category,brand}]. No markdown.`;
+${extra?"Extra user request: "+extra:""}
+
+Rules:
+- Prioritize fit to the recipient over generic popularity.
+- Keep every recommendation within the stated budget unless the user explicitly asks otherwise.
+- Prefer Indian brands, creators, experiences or services when a good fit exists.
+- Do not invent exact live prices, ratings, stock status, URLs or product availability. Use a realistic price range instead.
+- Avoid anything on the anti-wishlist.
+- Make the 4 options meaningfully different.
+
+Return ONLY valid JSON in this exact shape, with no markdown or extra text:
+{"recommendations":[{"title":"","description":"","reasoning":"","priceRange":"","category":"","brand":""}]}`;
     try{
       const t=await ask(prompt);
       const d=pj(t);
-      if(Array.isArray(d))setSugs(d);
-      else setSugs([{title:"Could not load",description:"Please try refreshing.",reasoning:"",priceRange:"",category:"Product",brand:""}]);
-    }catch{setSugs([{title:"Error",description:"Try again.",reasoning:"",priceRange:"",category:"Product",brand:""}]);}
+      const recs=Array.isArray(d) ? d : d?.recommendations;
+      if(Array.isArray(recs) && recs.length){
+        setSugs(recs.slice(0,4));
+      }else{
+        throw new Error("Gemini returned an unexpected recommendation format");
+      }
+    }catch(e){
+      console.error("Gift recommendations failed:",e);
+      setSugs([{title:"Could not load recommendations",description:"The AI request failed. Please try Refresh.",reasoning:e?.message||"Gemini did not return usable recommendations.",priceRange:"",category:"Product",brand:""}]);
+    }
     setLoading(false);
   },[person,curOcc]);
 
@@ -601,13 +618,27 @@ Return ONLY JSON array of 4: [{title,description,reasoning,priceRange,category,b
     if(!chatMsg.trim()||chatLoading)return;
     const msg=chatMsg.trim();setChatMsg("");
     setChatLog(h=>[...h,{r:"user",t:msg}]);setChatLoading(true);
-    const prompt=`Indian gifts for ${person?.name} (${person?.int}), budget ${curOcc.budget}, occasion ${curOcc.type}. Request: "${msg}". 1 sentence reply, then JSON array of 4 Indian gifts [{title,description,reasoning,priceRange,category,brand}]. No markdown.`;
+    const prompt=`You are Echo, an Indian gift recommendation assistant.
+Recipient: ${person?.name} (${person?.int||"unknown"})
+Budget: ${curOcc.budget}
+Occasion: ${curOcc.type}
+Anti-wishlist: ${person?.anti||"none"}
+User refinement request: "${msg}"
+
+Return ONLY valid JSON in this exact shape, with no markdown or extra text:
+{"reply":"one short helpful sentence","recommendations":[{"title":"","description":"","reasoning":"","priceRange":"","category":"","brand":""}]}
+Generate exactly 4 recommendations and respect the budget. Do not invent exact live prices, ratings, stock status or URLs.`;
     try{
       const txt=await ask(prompt);
-      const m=txt.match(/\[[\s\S]*\]/);
-      if(m)setSugs(pj(m[0])||sugs);
-      setChatLog(h=>[...h,{r:"bot",t:txt.split("[")[0].trim()||"Here are refined suggestions!"}]);
-    }catch{setChatLog(h=>[...h,{r:"bot",t:"Sorry, try again!"}]);}
+      const d=pj(txt);
+      const recs=Array.isArray(d) ? d : d?.recommendations;
+      if(Array.isArray(recs) && recs.length) setSugs(recs.slice(0,4));
+      const reply=Array.isArray(d) ? "Here are refined suggestions!" : (d?.reply||"Here are refined suggestions!");
+      setChatLog(h=>[...h,{r:"bot",t:reply}]);
+    }catch(e){
+      console.error("Gift refinement failed:",e);
+      setChatLog(h=>[...h,{r:"bot",t:"Sorry, I couldn't refresh the suggestions. Please try again."}]);
+    }
     setChatLoading(false);
   };
 
