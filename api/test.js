@@ -1,22 +1,22 @@
 export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-
-  // Check if Gemini key exists
   const keyExists = !!process.env.GEMINI_API_KEY;
-  const keyPreview = process.env.GEMINI_API_KEY
-    ? process.env.GEMINI_API_KEY.slice(0, 8) + "..."
-    : "NOT SET";
 
-  // Try calling Gemini with a simple test
+  if (!keyExists) {
+    return res.status(500).json({
+      status: "❌ GEMINI_API_KEY is not configured",
+      keyExists: false
+    });
+  }
+
   try {
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: "Say hello in one word" }] }],
-          generationConfig: { maxOutputTokens: 10 }
+          contents: [{ parts: [{ text: "Reply with exactly one word: Hello" }] }],
+          generationConfig: { maxOutputTokens: 10, temperature: 0 }
         })
       }
     );
@@ -24,28 +24,27 @@ export default async function handler(req, res) {
     const data = await response.json();
 
     if (!response.ok) {
-      return res.status(200).json({
+      return res.status(response.status).json({
         status: "❌ Gemini API Error",
-        keyExists,
-        keyPreview,
-        geminiError: data?.error?.message || "Unknown error",
-        fix: "Check your GEMINI_API_KEY in Vercel environment variables"
+        keyExists: true,
+        geminiError: data?.error?.message || "Unknown Gemini error"
       });
     }
 
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const text = data?.candidates?.[0]?.content?.parts
+      ?.map(part => part?.text || "")
+      .join("")
+      .trim() || "";
+
     return res.status(200).json({
-      status: "✅ Everything working!",
-      keyExists,
-      keyPreview,
+      status: text ? "✅ Everything working!" : "⚠️ Gemini connected but returned no text",
+      keyExists: true,
       geminiResponse: text
     });
-
   } catch (err) {
-    return res.status(200).json({
+    return res.status(500).json({
       status: "❌ Connection Error",
-      keyExists,
-      keyPreview,
+      keyExists: true,
       error: err.message
     });
   }
