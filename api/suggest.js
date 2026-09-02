@@ -11,8 +11,11 @@ export default async function handler(req, res) {
   if (!key) return res.status(500).json({ error: "GEMINI_API_KEY is not configured in Vercel." });
 
   try {
-    const { prompt, max_tokens = 1200 } = req.body || {};
+    const { prompt, max_tokens } = req.body || {};
     if (!prompt) return res.status(400).json({ error: "Prompt is required" });
+
+    // Fix: 1200 was too low — 4 detailed recommendations need ~2000-2500 tokens
+    const safeMax = Math.max(Number(max_tokens) || 2500, 2500);
 
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${encodeURIComponent(key)}`,
@@ -22,8 +25,8 @@ export default async function handler(req, res) {
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
-            maxOutputTokens: max_tokens,
-            temperature: 0.7
+            maxOutputTokens: safeMax
+            // temperature removed — deprecated in gemini-3.6-flash
           }
         })
       }
@@ -38,16 +41,25 @@ export default async function handler(req, res) {
       });
     }
 
+    const finishReason = data?.candidates?.[0]?.finishReason;
+
     const text = data?.candidates?.[0]?.content?.parts
       ?.map(part => part?.text || "")
       .join("")
       .trim();
 
+    // Log finish reason so you can debug truncation in Vercel logs
+    console.log("Gemini finishReason:", finishReason, "| text length:", text?.length);
+
     if (!text) {
-      const finishReason = data?.candidates?.[0]?.finishReason;
       return res.status(502).json({
         error: `Gemini returned no text${finishReason ? ` (finish reason: ${finishReason})` : ""}.`
       });
+    }
+
+    // Warn if truncated (MAX_TOKENS means response was cut off)
+    if (finishReason === "MAX_TOKENS") {
+      console.warn("Response truncated — increase maxOutputTokens further if this persists");
     }
 
     return res.status(200).json({ text });
