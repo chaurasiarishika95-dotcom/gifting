@@ -144,6 +144,16 @@ const grad="linear-gradient(135deg,#ff6b35,#e91e8c)";
 const gradPur="linear-gradient(135deg,#7c3aed,#db2777)";
 
 /* ── SMALL COMPONENTS ── */
+/* ── BUY ON AMAZON ──
+   Opens an Amazon India search for the product in a new tab. Works for any gift name, including AI suggestions.
+   Optional: put your Amazon Associates tag here (e.g. "yourtag-21") to earn on purchases. Leave "" to skip. */
+const AMAZON_TAG="";
+function buyOnAmazon(name,brand){
+  const q=[name,brand].filter(Boolean).join(" ").replace(/\s+/g," ").trim();
+  if(!q)return;
+  const url="https://www.amazon.in/s?k="+encodeURIComponent(q)+(AMAZON_TAG?"&tag="+encodeURIComponent(AMAZON_TAG):"");
+  window.open(url,"_blank","noopener,noreferrer");
+}
 function Btn({ch,onClick,type="o",sm,disabled,full,style={}}){
   const bg=type==="o"?grad:type==="pur"?gradPur:"#f3f4f6";
   const col=type==="o"||type==="pur"?"#fff":C.text;
@@ -750,7 +760,7 @@ Generate exactly 4 recommendations and respect the budget. Do not invent exact l
                 </div>
                 <div style={{display:"flex",gap:8}}>
                   <Btn ch="Browse Shop" type="g" sm style={{flex:1}} onClick={()=>{setMF(sg.category);setPage("market");}}/>
-                  <Btn ch="🛍️ Buy Now" sm style={{flex:1}}/>
+                  <Btn ch="🛍️ Buy on Amazon" sm style={{flex:1}} onClick={()=>buyOnAmazon(sg.title,sg.brand)}/>
                 </div>
               </div>
             );
@@ -992,7 +1002,7 @@ function Market({initFilter}){
               <p style={{fontSize:10,color:"#9ca3af",marginBottom:10}}>{item.rv.toLocaleString()} reviews</p>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <span style={{fontSize:15,fontWeight:900,color:C.o}}>{item.p}</span>
-                <Btn ch="Buy" sm/>
+                <Btn ch="Buy on Amazon" sm onClick={e=>{e.stopPropagation();buyOnAmazon(item.n,item.br);}}/>
               </div>
             </div>
           </div>
